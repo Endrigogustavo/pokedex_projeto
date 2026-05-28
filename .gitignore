@@ -1,0 +1,86 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Expo
+.expo/
+.expo-shared/
+web-build/
+dist/
+expo-env.d.ts
+.expo-go
+
+# React Native
+android/
+ios/
+build/
+*.keystore
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# TypeScript
+*.tsbuildinfo
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Env
+.env
+.env.*
+.env*.local
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+
+# Misc
+*.local
+*.swp
+*.swo
+
+# Test
+jest-*
+
+# Others
+.idea/
+*.iml
+
+# Expo managed assets
+assets/**/*.db
+
+# Metro
+.metro-health-check*
+metro-cache/
+
+# Temporary
+*.tmp
+*.temp
+
+# OS generated files
+ehthumbs.db
+Icon?
+
+# Package lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Expo preview QR
+*.expo
+
+# PEM and certs
+*.pem
