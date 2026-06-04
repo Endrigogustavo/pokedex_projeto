@@ -1,6 +1,6 @@
 export interface Poder {
     nome: string;
-    forca: string;
+    forca: number;
 }
 export interface Pokemon {
     index: string;

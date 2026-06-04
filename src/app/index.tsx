@@ -1,103 +1,108 @@
 import React, { useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  Text,
-  Alert,
-  Image,
-} from 'react-native';
-
+import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import {
+  Surface,
+  Text,
+  TextInput,
+  Button,
+  HelperText,
+  Snackbar,
+} from 'react-native-paper';
 
-import Button from '@/component/button';
-import Input from '@/component/input';
+import Pokeball from '@/component/pokeball';
 
 export default function Index() {
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
-  const [hover, setHover] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState(false);
 
   const router = useRouter();
 
   const handleLogin = () => {
-    console.log(
-      'Usuário:',
-      usuario,
-      '| Senha:',
-      senha
-    );
-
     if (
-      usuario.trim() === 'Neyma' &&
-      senha.trim() === 'vaiBrasil'
+      usuario.trim().toLowerCase() === 'ash' &&
+      senha.trim() === 'pikachu'
     ) {
-      console.log('entrou');
-
       router.push('/dashboard');
     } else {
-      console.log('nao entrou');
-
-      Alert.alert(
-        'Erro',
-        'Usuário ou senha incorretos.'
-      );
+      setError(true);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>
-        Passe o mouse no menino ney
-      </Text>
+      <Pokeball size={320} style={styles.bgBallTop} />
+      <Pokeball size={240} style={styles.bgBallBottom} />
 
-      <View
-        style={styles.neymarContainer}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-      >
-        <Image
-          source={
-            hover
-              ? require('../../assets/images/neymar-aberto.png')
-              : require('../../assets/images/neymar-fechado.png')
-          }
-          style={styles.neymarImage}
-          resizeMode="contain"
-        />
+      <View style={styles.content}>
+        <Pokeball size={96} style={styles.logo} />
+        <Text variant="displaySmall" style={styles.title}>
+          Pokédex
+        </Text>
+        <Text variant="titleMedium" style={styles.subtitle}>
+          Acesse sua conta de treinador
+        </Text>
 
-        {hover && (
-          <View style={styles.loginCard}>
-            <Text style={styles.loginTitle}>
-              Login
-            </Text>
+        <Surface style={styles.card} elevation={5}>
+          <Text variant="titleLarge" style={styles.cardTitle}>
+            Entrar
+          </Text>
 
-            <Input
-              placeholder="Usuário"
-              value={usuario}
-              onChangeText={setUsuario}
-              autoCapitalize="none"
-              style={{
-                marginBottom: 16,
-              }}
-            />
+          <TextInput
+            mode="outlined"
+            label="Treinador"
+            value={usuario}
+            onChangeText={setUsuario}
+            autoCapitalize="none"
+            left={<TextInput.Icon icon="account" />}
+            style={styles.input}
+          />
 
-            <Input
-              placeholder="Senha"
-              value={senha}
-              onChangeText={setSenha}
-              secureTextEntry
-              style={{
-                marginBottom: 24,
-              }}
-            />
+          <TextInput
+            mode="outlined"
+            label="Senha"
+            value={senha}
+            onChangeText={setSenha}
+            secureTextEntry={!showPass}
+            autoCapitalize="none"
+            left={<TextInput.Icon icon="lock" />}
+            right={
+              <TextInput.Icon
+                icon={showPass ? 'eye-off' : 'eye'}
+                onPress={() => setShowPass((s) => !s)}
+              />
+            }
+            style={styles.input}
+          />
 
-            <Button
-              title="Entrar"
-              onPress={handleLogin}
-            />
-          </View>
-        )}
+          <Button
+            mode="contained"
+            icon="login"
+            onPress={handleLogin}
+            style={styles.button}
+            contentStyle={styles.buttonContent}
+            labelStyle={styles.buttonLabel}
+          >
+            Entrar
+          </Button>
+
+          <HelperText type="info" style={styles.hint}>
+            Dica: treinador "ash" · senha "pikachu"
+          </HelperText>
+        </Surface>
       </View>
+
+      <Snackbar
+        visible={error}
+        onDismiss={() => setError(false)}
+        duration={3000}
+        style={styles.snackbar}
+        action={{ label: 'OK', onPress: () => setError(false) }}
+      >
+        Treinador ou senha incorretos!
+      </Snackbar>
     </View>
   );
 }
@@ -105,55 +110,72 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111827',
+    backgroundColor: '#D32F2F',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    overflow: 'hidden',
   },
-
-  title: {
-    color: 'white',
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 30,
-  },
-
-  neymarContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  neymarImage: {
-    width: 350,
-    height: 350,
-  },
-
-  loginCard: {
+  bgBallTop: {
     position: 'absolute',
-    bottom: 40,
-
-    width: 280,
-
-    backgroundColor: 'rgba(255,255,255,0.95)',
-
-    borderRadius: 20,
-    padding: 20,
-
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 8,
+    top: -90,
+    right: -90,
+    opacity: 0.12,
   },
-
-  loginTitle: {
-    fontSize: 22,
+  bgBallBottom: {
+    position: 'absolute',
+    bottom: -80,
+    left: -80,
+    opacity: 0.12,
+  },
+  content: {
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  logo: {
+    marginBottom: 14,
+  },
+  title: {
+    color: '#fff',
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.92)',
+    marginTop: 2,
+    marginBottom: 24,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+  },
+  cardTitle: {
+    fontWeight: '800',
+    marginBottom: 18,
+  },
+  input: {
+    marginBottom: 14,
+    backgroundColor: '#fff',
+  },
+  button: {
+    marginTop: 6,
+    borderRadius: 12,
+  },
+  buttonContent: {
+    height: 50,
+  },
+  buttonLabel: {
+    fontSize: 16,
     fontWeight: 'bold',
+  },
+  hint: {
     textAlign: 'center',
-    marginBottom: 20,
-    color: '#150b80',
+    marginTop: 8,
+  },
+  snackbar: {
+    backgroundColor: '#1B1B1F',
   },
 });
