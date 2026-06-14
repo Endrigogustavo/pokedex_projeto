@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Pokemon } from '@/@types/pokemon';
+import { pixelSpriteUrl } from '@/integration/pokemonPixelImage';
 
 const API_URL = axios.create({
     baseURL: 'https://pokeapi.co/api/v2',
@@ -9,7 +10,7 @@ function mapPokemon(dado: any): Pokemon {
     return {
         index: dado.id.toString().padStart(3, '0'),
         nome: dado.name,
-        imagem: dado.sprites.other['official-artwork'].front_default || dado.sprites.front_default,
+        imagem: pixelSpriteUrl(dado.id.toString()),
         tipos: dado.types.map((typeInfo: { type: { name: string } }) => typeInfo.type.name),
         poderes: dado.stats.map((statInfo: { stat: { name: string }, base_stat: number }) => ({
             nome: statInfo.stat.name,

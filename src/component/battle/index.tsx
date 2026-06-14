@@ -1,660 +1,744 @@
-import React, { useState } from 'react';
-import { View, Image, StyleSheet, ScrollView, Pressable } from 'react-native';
+import React, { useEffect, useState } from 'react';
 import {
-  Card,
-  Surface,
+  View,
+  StyleSheet,
+  Image,
+  ScrollView,
+  Pressable,
   Text,
-  Button,
-  Chip,
-  Avatar,
-  TouchableRipple,
-  Snackbar,
-  Portal,
-  Modal,
-} from 'react-native-paper';
+} from 'react-native';
+import { Button } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Pokemon } from '@/@types/pokemon';
-import { useTeam, TeamMember } from '@/context/TeamContext';
-import { GOD_TEAM_IDS } from '@/data/legendaries';
-import { getNextEvolutionId, getPokemonById } from '@/integration/pokemonIntegration';
+import { useTeam } from '@/context/TeamContext';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/useToast';
 import {
   getTypeColor,
   capitalize,
-  calcDamage,
-  effectivenessLabel,
-  hpColor,
-  maxHpFor,
+  statLabel,
+  getStat,
 } from '@/utils/pokemon';
-import StatBar from '@/component/statBar';
-import PokemonCard from '@/component/pokemonCard';
 
-type Props = {
-  allPokemons: Pokemon[];
-  legendaries: Pokemon[];
+type Props = { allPokemons: Pokemon[] };
+
+type Phase = 'choose' | 'battle' | 'done';
+type Outcome = 'win' | 'lose' | 'draw';
+
+type Round = {
+  myStat: string;
+  myValue: number;
+  botStat: string;
+  botValue: number;
+  result: Outcome;
 };
 
-type Result = 'win' | 'lose' | null;
-type OpponentKind = 'normal' | 'rare' | 'legendary';
-type Reward = { kind: 'pick' | 'legendary'; options: Pokemon[] } | null;
+const PIX = { imageRendering: 'pixelated' } as any;
 
-function pickRandom(arr: Pokemon[], n: number): Pokemon[] {
-  const copy = [...arr];
-  const out: Pokemon[] = [];
-  for (let i = 0; i < n && copy.length > 0; i++) {
-    const idx = Math.floor(Math.random() * copy.length);
-    out.push(copy.splice(idx, 1)[0]);
-  }
-  return out;
-}
+const pickRandom = (pool: Pokemon[], excludeIndex?: string): Pokemon | null => {
+  const candidates = pool.filter((p) => p.index !== excludeIndex);
+  if (candidates.length === 0) return pool[0] ?? null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+};
 
-export default function Battle({ allPokemons, legendaries }: Props) {
-  const {
-    team,
-    setTeam,
-    healTeam,
-    summonGods,
-    addPokemon,
-    addMemberWin,
-    evolveMember,
-    stats,
-    startBattleCount,
-    recordWin,
-    recordLoss,
-  } = useTeam();
+const pickRewards = (pool: Pokemon[], owned: (i: string) => boolean, count = 3): Pokemon[] => {
+  const candidates = pool.filter((p) => !owned(p.index));
+  const source = candidates.length >= count ? candidates : pool;
+  const shuffled = [...source].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+};
 
-  const [opponent, setOpponent] = useState<TeamMember | null>(null);
-  const [opponentKind, setOpponentKind] = useState<OpponentKind>('normal');
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [log, setLog] = useState<string[]>([]);
-  const [result, setResult] = useState<Result>(null);
-  const [snack, setSnack] = useState('');
-  const [reward, setReward] = useState<Reward>(null);
+export default function Battle({ allPokemons }: Props) {
+  const { team, addPokemon, isOwned } = useTeam();
+  const { userStats, updateStats } = useAuth();
+  const { showToast } = useToast();
+  const insets = useSafeAreaInsets();
 
-  const firstAlive = (members: TeamMember[]) =>
-    members.findIndex((m) => m.currentHp > 0);
+  const [phase, setPhase]           = useState<Phase>('choose');
+  const [myPokemon, setMyPokemon]   = useState<Pokemon | null>(null);
+  const [botPokemon, setBotPokemon] = useState<Pokemon | null>(null);
+  const [usedMine, setUsedMine]     = useState<string[]>([]);
+  const [usedBot, setUsedBot]       = useState<string[]>([]);
+  const [myScore, setMyScore]       = useState(0);
+  const [botScore, setBotScore]     = useState(0);
+  const [rounds, setRounds]         = useState<Round[]>([]);
+  const [reward, setReward]         = useState<Pokemon[] | null>(null);
+  const [claimedName, setClaimedName] = useState<string | null>(null);
 
-  const teamWiped = firstAlive(team) === -1;
-
-  const startBattle = () => {
-    const alive = firstAlive(team);
-    if (alive === -1) return;
-
-    const n = startBattleCount();
-    let pool = allPokemons;
-    let kind: OpponentKind = 'normal';
-    if (n % 20 === 0 && legendaries.length > 0) {
-      pool = legendaries;
-      kind = 'legendary';
-    } else if (n % 5 === 0) {
-      kind = 'rare';
+  // Sorteia o adversário ao montar (e quando a lista carrega).
+  useEffect(() => {
+    if (!botPokemon && allPokemons.length > 0) {
+      setBotPokemon(pickRandom(allPokemons));
     }
+  }, [allPokemons, botPokemon]);
 
-    const random = pool[Math.floor(Math.random() * pool.length)];
-    const hpMult = kind === 'legendary' ? 1.6 : kind === 'rare' ? 1.25 : 1;
-    const maxHp = Math.round(maxHpFor(random) * hpMult);
+  const stats = myPokemon ? myPokemon.poderes.map((p) => p.nome) : [];
 
-    setOpponent({ id: 'opp', pokemon: random, maxHp, currentHp: maxHp, wins: 0 });
-    setOpponentKind(kind);
-    setActiveIndex(alive);
-    setResult(null);
-
-    const intro =
-      kind === 'legendary'
-        ? `⚡ Um LENDÁRIO ${capitalize(random.nome)} apareceu!`
-        : kind === 'rare'
-        ? `✨ Um ${capitalize(random.nome)} raro apareceu!`
-        : `Um ${capitalize(random.nome)} selvagem apareceu!`;
-    setLog([intro]);
-  };
-
-  /** Recompensas e evolução após uma vitória. */
-  const onWin = (winner: TeamMember) => {
-    const newWins = stats.wins + 1;
-    if (newWins % 20 === 0 && legendaries.length > 0) {
-      setReward({ kind: 'legendary', options: pickRandom(legendaries, 1) });
-    } else if (newWins % 5 === 0) {
-      setReward({ kind: 'pick', options: pickRandom(allPokemons, 3) });
-    }
-    maybeEvolve(winner);
-  };
-
-  const maybeEvolve = async (winner: TeamMember) => {
-    const memberWins = winner.wins + 1;
-    addMemberWin(winner.id);
-    if (memberWins % 3 !== 0) return;
-    try {
-      const nextId = await getNextEvolutionId(Number(winner.pokemon.index));
-      if (!nextId) return;
-      const evolved = await getPokemonById(nextId);
-      evolveMember(winner.id, evolved);
-      setSnack(`✨ ${capitalize(winner.pokemon.nome)} evoluiu para ${capitalize(evolved.nome)}!`);
-    } catch (e) {
-      // ignora falha de evolução
-    }
-  };
-
-  const claim = (pokemon: Pokemon) => {
-    const dest = addPokemon(pokemon);
+  const newBattle = () => {
+    setMyPokemon(null);
+    setBotPokemon(pickRandom(allPokemons));
+    setUsedMine([]);
+    setUsedBot([]);
+    setMyScore(0);
+    setBotScore(0);
+    setRounds([]);
     setReward(null);
-    setSnack(
-      `${capitalize(pokemon.nome)} ${dest === 'team' ? 'entrou para a equipe!' : 'foi para a bolsa!'}`
+    setClaimedName(null);
+    setPhase('choose');
+  };
+
+  const claimReward = (p: Pokemon) => {
+    const dest = addPokemon(p);
+    setClaimedName(capitalize(p.nome));
+    showToast(
+      dest === 'team'
+        ? `${capitalize(p.nome)} entrou no seu time!`
+        : `${capitalize(p.nome)} foi para a bolsa (time cheio)!`,
+      'success'
     );
   };
 
-  const commit = (
-    teamCopy: TeamMember[],
-    opp: TeamMember,
-    active: number,
-    newLog: string[],
-    res: Result
-  ) => {
-    setTeam(teamCopy);
-    setOpponent(opp);
-    setActiveIndex(active);
-    setLog(newLog);
-    if (res === 'win') {
-      recordWin(opponentKind === 'legendary');
-      onWin(teamCopy[active]);
-    } else if (res === 'lose') {
-      recordLoss();
-    }
-    if (res) setResult(res);
+  const chooseMine = (p: Pokemon) => {
+    setMyPokemon(p);
+    setPhase('battle');
   };
 
-  /** Um turno completo: jogador ataca e, se sobreviver, o oponente revida. */
-  const attack = () => {
-    if (!opponent || result) return;
+  const finalize = (my: number, bot: number) => {
+    const won  = my > bot;
+    const draw = my === bot;
+    setPhase('done');
 
-    const teamCopy = team.map((m) => ({ ...m }));
-    const opp = { ...opponent };
-    const newLog = [...log];
-
-    let active =
-      teamCopy[activeIndex].currentHp > 0 ? activeIndex : firstAlive(teamCopy);
-    if (active === -1) return;
-
-    const playerHit = calcDamage(teamCopy[active].pokemon, opp.pokemon);
-    opp.currentHp = Math.max(0, opp.currentHp - playerHit.damage);
-    newLog.push(
-      `${capitalize(teamCopy[active].pokemon.nome)} atacou e causou ${playerHit.damage} de dano.${effectivenessLabel(playerHit.multiplier)}`
+    showToast(
+      won ? 'Você venceu a batalha! 🏆' : draw ? 'Empate!' : 'Você perdeu...',
+      won ? 'success' : draw ? 'info' : 'error'
     );
 
-    if (opp.currentHp <= 0) {
-      newLog.push(`${capitalize(opp.pokemon.nome)} desmaiou! Você venceu a batalha!`);
-      commit(teamCopy, opp, active, newLog, 'win');
-      return;
+    // Vitória dá uma recompensa: 3 Pokémons aleatórios para escolher.
+    if (won) {
+      setReward(pickRewards(allPokemons, isOwned));
     }
 
-    const oppHit = calcDamage(opp.pokemon, teamCopy[active].pokemon);
-    teamCopy[active].currentHp = Math.max(0, teamCopy[active].currentHp - oppHit.damage);
-    newLog.push(
-      `${capitalize(opp.pokemon.nome)} revidou e causou ${oppHit.damage} de dano.${effectivenessLabel(oppHit.multiplier)}`
+    // Persiste o resultado nas estatísticas da nuvem.
+    if (!draw) {
+      const v = userStats?.vitorias ?? 0;
+      const d = userStats?.derrotas ?? 0;
+      const newV = v + (won ? 1 : 0);
+      const newD = d + (won ? 0 : 1);
+      const newLevel = Math.floor(newV / 3) + 1;
+      updateStats(newLevel, newV, newD);
+    }
+  };
+
+  const playStat = (statName: string) => {
+    if (!myPokemon || !botPokemon) return;
+    if (usedMine.includes(statName)) return;
+
+    const myValue = getStat(myPokemon, statName);
+
+    // O bot é estratégico: escolhe o maior atributo que ainda não usou.
+    const botRemaining = stats.filter((s) => !usedBot.includes(s));
+    const botStat = botRemaining.reduce((best, s) =>
+      getStat(botPokemon, s) > getStat(botPokemon, best) ? s : best
     );
+    const botValue = getStat(botPokemon, botStat);
 
-    if (teamCopy[active].currentHp <= 0) {
-      newLog.push(`${capitalize(teamCopy[active].pokemon.nome)} desmaiou!`);
-      const next = firstAlive(teamCopy);
-      if (next === -1) {
-        newLog.push('Toda a sua equipe desmaiou... Você perdeu.');
-        commit(teamCopy, opp, 0, newLog, 'lose');
-        return;
-      }
-      newLog.push(`Vai, ${capitalize(teamCopy[next].pokemon.nome)}!`);
-      active = next;
+    const result: Outcome =
+      myValue > botValue ? 'win' : myValue < botValue ? 'lose' : 'draw';
+
+    const round: Round = { myStat: statName, myValue, botStat, botValue, result };
+    const newRounds   = [...rounds, round];
+    const newUsedMine = [...usedMine, statName];
+    const newUsedBot  = [...usedBot, botStat];
+    const newMyScore  = myScore + (result === 'win' ? 1 : 0);
+    const newBotScore = botScore + (result === 'lose' ? 1 : 0);
+
+    setRounds(newRounds);
+    setUsedMine(newUsedMine);
+    setUsedBot(newUsedBot);
+    setMyScore(newMyScore);
+    setBotScore(newBotScore);
+
+    if (newUsedMine.length >= stats.length) {
+      finalize(newMyScore, newBotScore);
     }
-
-    commit(teamCopy, opp, active, newLog, null);
   };
 
-  /** Resolve a batalha inteira de uma vez. */
-  const autoBattle = () => {
-    if (!opponent || result) return;
+  // ── Sem time ──────────────────────────────────────────────
+  if (team.length === 0) {
+    return (
+      <View style={styles.center}>
+        <MaterialCommunityIcons name="sword-cross" size={56} color="#CACAD5" />
+        <Text style={styles.emptyTitle}>Monte um time para batalhar</Text>
+      </View>
+    );
+  }
 
-    const teamCopy = team.map((m) => ({ ...m }));
-    const opp = { ...opponent };
-    const newLog = [...log];
-    let active =
-      teamCopy[activeIndex].currentHp > 0 ? activeIndex : firstAlive(teamCopy);
-    let turns = 0;
-
-    while (active !== -1 && opp.currentHp > 0 && turns < 300) {
-      turns++;
-      const playerHit = calcDamage(teamCopy[active].pokemon, opp.pokemon);
-      opp.currentHp = Math.max(0, opp.currentHp - playerHit.damage);
-      newLog.push(
-        `${capitalize(teamCopy[active].pokemon.nome)} causou ${playerHit.damage} de dano.${effectivenessLabel(playerHit.multiplier)}`
-      );
-      if (opp.currentHp <= 0) {
-        newLog.push(`${capitalize(opp.pokemon.nome)} desmaiou! Você venceu a batalha!`);
-        break;
-      }
-
-      const oppHit = calcDamage(opp.pokemon, teamCopy[active].pokemon);
-      teamCopy[active].currentHp = Math.max(0, teamCopy[active].currentHp - oppHit.damage);
-      newLog.push(
-        `${capitalize(opp.pokemon.nome)} causou ${oppHit.damage} de dano.${effectivenessLabel(oppHit.multiplier)}`
-      );
-      if (teamCopy[active].currentHp <= 0) {
-        newLog.push(`${capitalize(teamCopy[active].pokemon.nome)} desmaiou!`);
-        const next = firstAlive(teamCopy);
-        if (next === -1) {
-          newLog.push('Toda a sua equipe desmaiou... Você perdeu.');
-          break;
-        }
-        newLog.push(`Vai, ${capitalize(teamCopy[next].pokemon.nome)}!`);
-        active = next;
-      }
-    }
-
-    const finalResult: Result =
-      opp.currentHp <= 0 ? 'win' : firstAlive(teamCopy) === -1 ? 'lose' : null;
-    commit(teamCopy, opp, active === -1 ? 0 : active, newLog, finalResult);
-  };
-
-  const switchTo = (idx: number) => {
-    if (result || team[idx].currentHp <= 0 || idx === activeIndex) return;
-    setActiveIndex(idx);
-    setLog((prev) => [...prev, `Vai, ${capitalize(team[idx].pokemon.nome)}!`]);
-  };
-
-  /** Botão oculto: invoca os deuses (trocam os 4 primeiros da equipe). */
-  const handleSummon = () => {
-    const gods = legendaries.filter((p) => GOD_TEAM_IDS.includes(Number(p.index)));
-    if (gods.length === 0) return;
-    summonGods(gods);
-    setSnack('⚡ Os deuses entraram! Os 4 primeiros foram para a bolsa.');
-  };
-
-  const player = team[activeIndex];
-  const opponentLabel =
-    opponentKind === 'legendary'
-      ? '⚡ LENDÁRIO'
-      : opponentKind === 'rare'
-      ? '✨ Encontro raro'
-      : 'Oponente selvagem';
+  const lastRound = rounds[rounds.length - 1] ?? null;
+  const botColor  = botPokemon ? getTypeColor(botPokemon.tipos[0]) : '#888';
+  const myColor   = myPokemon ? getTypeColor(myPokemon.tipos[0]) : '#888';
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <View style={styles.topChips}>
-          <Chip icon="trophy" compact style={styles.winsChip}>
-            {`${stats.wins}`}
-          </Chip>
-          <Chip icon="sword-cross" compact style={styles.battleChip}>
-            {`Luta #${stats.battles + (opponent && !result ? 0 : 1)}`}
-          </Chip>
-        </View>
-        <Button
-          mode="contained"
-          icon="heart-plus"
-          compact
-          buttonColor="#2e9e5b"
-          onPress={healTeam}
-        >
-          Curar
-        </Button>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Batalha de Atributos</Text>
+        {phase !== 'choose' && (
+          <View style={styles.scorePill}>
+            <Text style={styles.scoreText}>
+              {myScore} <Text style={styles.scoreDim}>x</Text> {botScore}
+            </Text>
+          </View>
+        )}
       </View>
 
-      <Card
-        mode="elevated"
-        style={[styles.arena, opponentKind === 'legendary' && styles.arenaLegendary]}
-      >
-        <Card.Content>
-          {opponent ? (
-            <Combatant member={opponent} label={opponentLabel} align="right" />
-          ) : (
-            <View style={styles.emptyOpponent}>
-              <Text variant="bodyMedium" style={styles.muted}>
-                Nenhum oponente
+      {/* ── Adversário ── */}
+      {botPokemon && (
+        <View style={[styles.fighter, { borderColor: botColor }]}>
+          <View style={[styles.fighterBadge, { backgroundColor: botColor }]}>
+            <Text style={styles.fighterBadgeText}>ADVERSÁRIO</Text>
+          </View>
+          <Image source={{ uri: botPokemon.imagem }} style={[styles.fighterImg, PIX]} />
+          <Text style={styles.fighterName}>{capitalize(botPokemon.nome)}</Text>
+          <Text style={styles.fighterTypes}>
+            {botPokemon.tipos.map(capitalize).join(' · ')}
+          </Text>
+        </View>
+      )}
+
+      {/* ── Fase: escolher meu Pokémon ── */}
+      {phase === 'choose' && (
+        <>
+          <Text style={styles.sectionTitle}>Escolha seu Pokémon</Text>
+          <View style={styles.teamGrid}>
+            {team.map((m) => {
+              const color = getTypeColor(m.pokemon.tipos[0]);
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => chooseMine(m.pokemon)}
+                  style={({ pressed }) => [
+                    styles.teamPick,
+                    { borderColor: color },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Image source={{ uri: m.pokemon.imagem }} style={[styles.pickImg, PIX]} />
+                  <Text style={styles.pickName} numberOfLines={1}>
+                    {capitalize(m.pokemon.nome)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
+
+      {/* ── Fase: batalha em andamento / fim ── */}
+      {phase !== 'choose' && myPokemon && (
+        <>
+          <View style={[styles.fighter, styles.myFighter, { borderColor: myColor }]}>
+            <View style={[styles.fighterBadge, { backgroundColor: myColor }]}>
+              <Text style={styles.fighterBadgeText}>VOCÊ</Text>
+            </View>
+            <Image source={{ uri: myPokemon.imagem }} style={[styles.fighterImg, PIX]} />
+            <Text style={styles.fighterName}>{capitalize(myPokemon.nome)}</Text>
+          </View>
+
+          {/* Resultado da última rodada */}
+          {lastRound && (
+            <View
+              style={[
+                styles.roundBanner,
+                {
+                  backgroundColor:
+                    lastRound.result === 'win'
+                      ? '#E6F4EA'
+                      : lastRound.result === 'lose'
+                      ? '#FDECEA'
+                      : '#EEF0F4',
+                },
+              ]}
+            >
+              <Text style={styles.roundText}>
+                Você: {statLabel(lastRound.myStat)}{' '}
+                <Text style={styles.roundValue}>{lastRound.myValue}</Text>
+                {'   vs   '}
+                Bot: {statLabel(lastRound.botStat)}{' '}
+                <Text style={styles.roundValue}>{lastRound.botValue}</Text>
+              </Text>
+              <Text
+                style={[
+                  styles.roundResult,
+                  {
+                    color:
+                      lastRound.result === 'win'
+                        ? '#2E9E5B'
+                        : lastRound.result === 'lose'
+                        ? '#C62828'
+                        : '#6B7280',
+                  },
+                ]}
+              >
+                {lastRound.result === 'win'
+                  ? '✓ Ponto seu!'
+                  : lastRound.result === 'lose'
+                  ? '✗ Ponto do bot'
+                  : '= Empate'}
               </Text>
             </View>
           )}
 
-          {/* Botão OCULTO: segure o "VS" para invocar os deuses */}
-          <Pressable onLongPress={handleSummon} delayLongPress={600}>
-            <Avatar.Text size={40} label="VS" style={styles.vs} color="#fff" />
-          </Pressable>
-
-          {player ? <Combatant member={player} label="Você" align="left" /> : null}
-        </Card.Content>
-      </Card>
-
-      {result && (
-        <Surface
-          style={[
-            styles.banner,
-            { backgroundColor: result === 'win' ? '#2e9e5b' : '#374151' },
-          ]}
-          elevation={2}
-        >
-          <Text variant="titleMedium" style={styles.bannerText}>
-            {result === 'win' ? '🎉 Vitória!' : '💀 Derrota...'}
-          </Text>
-        </Surface>
-      )}
-
-      <Surface style={styles.logBox} elevation={1}>
-        <ScrollView contentContainerStyle={styles.logContent}>
-          {[...log].reverse().map((line, i) => (
-            <Text key={i} variant="bodySmall" style={styles.logLine}>
-              • {line}
-            </Text>
-          ))}
-          {log.length === 0 && (
-            <Text variant="bodyMedium" style={styles.logHint}>
-              Procure um oponente para iniciar a batalha.
-            </Text>
-          )}
-        </ScrollView>
-      </Surface>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.bench}
-      >
-        {team.map((m, idx) => {
-          const fainted = m.currentHp <= 0;
-          const isActive = idx === activeIndex;
-          return (
-            <TouchableRipple
-              key={m.id}
-              onPress={() => switchTo(idx)}
-              borderless
-              style={[
-                styles.benchItem,
-                isActive && styles.benchActive,
-                fainted && styles.benchFainted,
-              ]}
-            >
-              <Image source={{ uri: m.pokemon.imagem }} style={styles.benchImg} />
-            </TouchableRipple>
-          );
-        })}
-      </ScrollView>
-
-      <View style={styles.actions}>
-        {!opponent || result ? (
-          <Button
-            mode="contained"
-            icon="magnify"
-            disabled={teamWiped}
-            onPress={startBattle}
-            style={styles.action}
-            contentStyle={styles.actionContent}
-          >
-            {teamWiped ? 'Cure sua equipe primeiro' : 'Procurar oponente'}
-          </Button>
-        ) : (
-          <>
-            <Button
-              mode="contained"
-              icon="sword"
-              onPress={attack}
-              style={styles.action}
-              contentStyle={styles.actionContent}
-            >
-              Atacar
-            </Button>
-            <Button
-              mode="contained-tonal"
-              icon="fast-forward"
-              onPress={autoBattle}
-              style={styles.actionAuto}
-              contentStyle={styles.actionContent}
-            >
-              Auto
-            </Button>
-          </>
-        )}
-      </View>
-
-      {/* Modal de recompensa (a cada 5 / 20 vitórias) */}
-      <Portal>
-        <Modal
-          visible={!!reward}
-          onDismiss={() => setReward(null)}
-          contentContainerStyle={styles.rewardModal}
-        >
-          {reward && (
-            <Surface style={styles.rewardSheet} elevation={5}>
-              <Text variant="titleLarge" style={styles.rewardTitle}>
-                {reward.kind === 'legendary'
-                  ? '⚡ Lendário encontrado!'
-                  : '🎁 Recompensa de vitórias!'}
+          {/* Atributos disponíveis */}
+          {phase === 'battle' && (
+            <>
+              <Text style={styles.sectionTitle}>
+                Escolha um atributo ({stats.length - usedMine.length} restantes)
               </Text>
-              <Text variant="bodyMedium" style={styles.rewardSubtitle}>
-                {reward.kind === 'legendary'
-                  ? 'Toque para adicionar à sua equipe'
-                  : 'Escolha 1 Pokémon para o seu time'}
-              </Text>
-              <View style={styles.rewardOptions}>
-                {reward.options.map((p) => (
-                  <PokemonCard key={p.index} pokemon={p} onPress={() => claim(p)} />
-                ))}
+              <View style={styles.attrGrid}>
+                {myPokemon.poderes.map((poder) => {
+                  const used = usedMine.includes(poder.nome);
+                  return (
+                    <Pressable
+                      key={poder.nome}
+                      disabled={used}
+                      onPress={() => playStat(poder.nome)}
+                      style={({ pressed }) => [
+                        styles.attrBtn,
+                        used && styles.attrUsed,
+                        pressed && !used && styles.pressed,
+                      ]}
+                    >
+                      <Text style={[styles.attrLabel, used && styles.attrUsedText]}>
+                        {statLabel(poder.nome)}
+                      </Text>
+                      <Text style={[styles.attrValue, used && styles.attrUsedText]}>
+                        {used ? '—' : poder.forca}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            </Surface>
+            </>
           )}
-        </Modal>
-      </Portal>
 
-      <Snackbar
-        visible={!!snack}
-        onDismiss={() => setSnack('')}
-        duration={3500}
-        style={styles.snackbar}
-      >
-        {snack}
-      </Snackbar>
-    </View>
-  );
-}
+          {/* Resultado final */}
+          {phase === 'done' && (
+            <>
+              <View style={styles.finalBox}>
+                <MaterialCommunityIcons
+                  name={
+                    myScore > botScore
+                      ? 'trophy'
+                      : myScore < botScore
+                      ? 'emoticon-sad-outline'
+                      : 'handshake-outline'
+                  }
+                  size={48}
+                  color={
+                    myScore > botScore
+                      ? '#F59E0B'
+                      : myScore < botScore
+                      ? '#C62828'
+                      : '#6B7280'
+                  }
+                />
+                <Text style={styles.finalTitle}>
+                  {myScore > botScore ? 'Vitória!' : myScore < botScore ? 'Derrota' : 'Empate'}
+                </Text>
+                <Text style={styles.finalScore}>
+                  {myScore} a {botScore}
+                </Text>
+              </View>
 
-function Combatant({
-  member,
-  label,
-  align,
-}: {
-  member: TeamMember;
-  label: string;
-  align: 'left' | 'right';
-}) {
-  const { pokemon, currentHp, maxHp } = member;
-  const mainColor = getTypeColor(pokemon.tipos[0]);
-  const ratio = maxHp > 0 ? currentHp / maxHp : 0;
+              {/* Recompensa: escolher 1 de 3 Pokémons aleatórios */}
+              {myScore > botScore && reward && !claimedName && (
+                <View style={styles.rewardBox}>
+                  <Text style={styles.rewardTitle}>Escolha sua recompensa</Text>
+                  <Text style={styles.rewardSub}>Um deles entra para o seu time</Text>
+                  <View style={styles.rewardGrid}>
+                    {reward.map((p) => {
+                      const color = getTypeColor(p.tipos[0]);
+                      return (
+                        <Pressable
+                          key={p.index}
+                          onPress={() => claimReward(p)}
+                          style={({ pressed }) => [
+                            styles.rewardPick,
+                            { borderColor: color },
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Image source={{ uri: p.imagem }} style={[styles.pickImg, PIX]} />
+                          <Text style={styles.pickName} numberOfLines={1}>
+                            {capitalize(p.nome)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
 
-  return (
-    <View
-      style={[
-        styles.combatant,
-        align === 'right' ? styles.alignRight : styles.alignLeft,
-      ]}
-    >
-      <View style={styles.combatantInfo}>
-        <Text variant="labelSmall" style={styles.combatantLabel}>
-          {label.toUpperCase()}
-        </Text>
-        <Text variant="titleMedium" style={styles.combatantName}>
-          {capitalize(pokemon.nome)}
-        </Text>
-        <StatBar
-          value={currentHp}
-          max={maxHp}
-          color={hpColor(ratio)}
-          valueText={`${currentHp}/${maxHp}`}
-        />
-      </View>
-      <View style={[styles.combatantImgWrap, { backgroundColor: mainColor + '22' }]}>
-        <Image source={{ uri: pokemon.imagem }} style={styles.combatantImg} />
-      </View>
-    </View>
+              {claimedName && (
+                <View style={styles.claimedBox}>
+                  <MaterialCommunityIcons name="check-circle" size={20} color="#2E9E5B" />
+                  <Text style={styles.claimedText}>{claimedName} adicionado!</Text>
+                </View>
+              )}
+
+              {/* Só libera nova batalha após pegar a recompensa (quando venceu) */}
+              {(myScore <= botScore || claimedName) && (
+                <Button
+                  mode="contained"
+                  icon="sword-cross"
+                  onPress={newBattle}
+                  style={styles.againBtn}
+                  contentStyle={{ height: 48 }}
+                >
+                  Nova batalha
+                </Button>
+              )}
+            </>
+          )}
+
+          {/* Histórico de rodadas */}
+          {rounds.length > 0 && (
+            <View style={styles.history}>
+              <Text style={styles.historyTitle}>Rodadas</Text>
+              {rounds.map((r, i) => (
+                <View key={i} style={styles.historyRow}>
+                  <Text style={styles.historyIdx}>{i + 1}</Text>
+                  <Text style={styles.historyCell}>
+                    {statLabel(r.myStat)} {r.myValue}
+                  </Text>
+                  <MaterialCommunityIcons
+                    name={
+                      r.result === 'win'
+                        ? 'chevron-right'
+                        : r.result === 'lose'
+                        ? 'chevron-left'
+                        : 'minus'
+                    }
+                    size={16}
+                    color={
+                      r.result === 'win'
+                        ? '#2E9E5B'
+                        : r.result === 'lose'
+                        ? '#C62828'
+                        : '#6B7280'
+                    }
+                  />
+                  <Text style={[styles.historyCell, styles.historyRight]}>
+                    {r.botValue} {statLabel(r.botStat)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 14,
+    backgroundColor: '#F5F5F8',
   },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+  content: {
+    padding: 16,
   },
-  topChips: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  winsChip: {
-    backgroundColor: '#FFE08C',
-  },
-  battleChip: {
-    backgroundColor: '#E3E1E8',
-  },
-  arena: {
-    backgroundColor: '#fff',
-  },
-  arenaLegendary: {
-    borderWidth: 2,
-    borderColor: '#D32F2F',
-  },
-  combatant: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  alignLeft: {
-    flexDirection: 'row',
-  },
-  alignRight: {
-    flexDirection: 'row-reverse',
-  },
-  combatantInfo: {
+  center: {
     flex: 1,
-  },
-  combatantLabel: {
-    color: '#9aa0a6',
-    fontWeight: '700',
-  },
-  combatantName: {
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  combatantImgWrap: {
-    borderRadius: 50,
-    padding: 6,
-  },
-  combatantImg: {
-    width: 72,
-    height: 72,
-    resizeMode: 'contain',
-  },
-  emptyOpponent: {
-    height: 90,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#F5F5F8',
+    gap: 12,
+    padding: 24,
   },
-  muted: {
-    color: '#9aa0a6',
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#49454F',
   },
-  vs: {
-    alignSelf: 'center',
-    backgroundColor: '#D32F2F',
-    marginVertical: 6,
-  },
-  banner: {
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 12,
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    marginTop: 2,
   },
-  bannerText: {
+  title: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#1B1B1F',
+    letterSpacing: -0.3,
+  },
+  scorePill: {
+    backgroundColor: '#1B1B1F',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  scoreText: {
     color: '#fff',
     fontWeight: '900',
+    fontSize: 16,
   },
-  logBox: {
+  scoreDim: {
+    color: '#9E9E9E',
+    fontWeight: '700',
+  },
+  fighter: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  myFighter: {
+    marginTop: 4,
+  },
+  fighterBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    borderBottomRightRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  fighterBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  fighterImg: {
+    width: 110,
+    height: 110,
+    resizeMode: 'contain',
+  },
+  fighterName: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#1B1B1F',
+    marginTop: 4,
+  },
+  fighterTypes: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1B1B1F',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  teamGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  teamPick: {
+    width: '31%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 2,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  pickImg: {
+    width: 56,
+    height: 56,
+    resizeMode: 'contain',
+  },
+  pickName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#49454F',
+    marginTop: 2,
+  },
+  pressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.97 }],
+  },
+  roundBanner: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  roundText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1B1B1F',
+    textAlign: 'center',
+  },
+  roundValue: {
+    fontWeight: '900',
+  },
+  roundResult: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  attrGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  attrBtn: {
+    width: '31%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    gap: 2,
+  },
+  attrUsed: {
+    backgroundColor: '#ECECEF',
+    elevation: 0,
+  },
+  attrUsedText: {
+    color: '#BDBDBD',
+  },
+  attrLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  attrValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#CC0000',
+  },
+  finalBox: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    alignItems: 'center',
+    padding: 24,
+    gap: 6,
+    marginBottom: 12,
+  },
+  finalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#1B1B1F',
+  },
+  finalScore: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  rewardBox: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+  },
+  rewardTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#1B1B1F',
+    textAlign: 'center',
+  },
+  rewardSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 14,
+  },
+  rewardGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  rewardPick: {
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 14,
-    marginTop: 12,
-  },
-  logContent: {
-    padding: 12,
-  },
-  logLine: {
-    color: '#374151',
-    marginBottom: 6,
-    lineHeight: 18,
-  },
-  logHint: {
-    color: '#9aa0a6',
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  bench: {
-    gap: 10,
+    borderWidth: 2,
+    alignItems: 'center',
     paddingVertical: 12,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
   },
-  benchItem: {
-    width: 54,
-    height: 54,
-    borderRadius: 12,
-    backgroundColor: '#fff',
+  claimedBox: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  benchActive: {
-    borderColor: '#D32F2F',
-  },
-  benchFainted: {
-    opacity: 0.4,
-  },
-  benchImg: {
-    width: 44,
-    height: 44,
-    resizeMode: 'contain',
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  action: {
-    flex: 1,
+    gap: 6,
+    backgroundColor: '#E6F4EA',
     borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 12,
   },
-  actionAuto: {
-    flex: 0.6,
-    borderRadius: 12,
+  claimedText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2E9E5B',
   },
-  actionContent: {
-    height: 48,
+  againBtn: {
+    borderRadius: 14,
+    backgroundColor: '#CC0000',
+    alignSelf: 'stretch',
+    marginBottom: 12,
   },
-  rewardModal: {
-    padding: 20,
-  },
-  rewardSheet: {
+  history: {
     backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 20,
-  },
-  rewardTitle: {
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  rewardSubtitle: {
-    color: '#6b7280',
-    textAlign: 'center',
+    borderRadius: 16,
+    padding: 14,
     marginTop: 4,
-    marginBottom: 16,
   },
-  rewardOptions: {
+  historyTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1B1B1F',
+    marginBottom: 8,
+  },
+  historyRow: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#EEE',
+    gap: 8,
   },
-  snackbar: {
-    backgroundColor: '#1B1B1F',
+  historyIdx: {
+    width: 18,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#9E9E9E',
+  },
+  historyCell: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1B1B1F',
+  },
+  historyRight: {
+    textAlign: 'right',
   },
 });

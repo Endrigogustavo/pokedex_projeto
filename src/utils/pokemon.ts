@@ -27,12 +27,6 @@ export function contrastText(hex: string): '#1a1a1a' | '#ffffff' {
   return luminance > 0.62 ? '#1a1a1a' : '#ffffff';
 }
 
-/** Sprite pixelado (estilo Game Boy) a partir do número da Pokédex. */
-export function pixelSpriteUrl(index: string): string {
-  const id = Number(index);
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
-}
-
 /** Nível fictício derivado do total de status (apenas para dar o "clima" de jogo). */
 export function pseudoLevel(pokemon: Pokemon): number {
   const total = pokemon.poderes.reduce((sum, p) => sum + Number(p.forca), 0);
@@ -48,18 +42,15 @@ const STAT_LABELS: Record<string, string> = {
   speed: 'Velocidade',
 };
 
-/** Rótulo amigável (em português) para um status. */
 export function statLabel(nome: string): string {
   return STAT_LABELS[nome] || nome;
 }
 
-/** Valor de um status específico do Pokémon. */
 export function getStat(pokemon: Pokemon, nome: string): number {
   const stat = pokemon.poderes.find((p) => p.nome === nome);
   return stat ? Number(stat.forca) : 0;
 }
 
-/** HP máximo usado nas batalhas (dobro do status base para batalhas mais longas). */
 export function maxHpFor(pokemon: Pokemon): number {
   return getStat(pokemon, 'hp') * 2;
 }

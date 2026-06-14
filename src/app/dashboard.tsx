@@ -1,19 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Appbar, BottomNavigation, Text } from 'react-native-paper';
+import { Appbar, BottomNavigation, Text, useTheme } from 'react-native-paper';
+import { useRouter } from 'expo-router';
 
-import { getPokemon, getPokemonsByIds } from '@/integration/pokemonIntegration';
+import { getPokemon } from '@/integration/pokemonIntegration';
 import { Pokemon } from '@/@types/pokemon';
 import { STARTER_IDS } from '@/data/starters';
-import { LEGENDARY_IDS } from '@/data/legendaries';
 import { TeamProvider, useTeam } from '@/context/TeamContext';
+import { useAuth } from '@/context/AuthContext';
 
 import Pokeball from '@/component/pokeball';
 import TeamSelect from '@/component/teamSelect';
 import TeamView from '@/component/teamView';
 import PokedexGrid from '@/component/pokedexGrid';
 import Battle from '@/component/battle';
-import Achievements from '@/component/achievements';
+import Profile from '@/component/profile';
 
 export default function Dashboard() {
   return (
@@ -24,36 +25,52 @@ export default function Dashboard() {
 }
 
 function DashboardInner() {
-  const { hasTeam, createTeam } = useTeam();
+  const { hasTeam, createTeam, loadSavedTeam } = useTeam();
+  const { isAuthenticated, isLoading: authLoading, userId, signOut } = useAuth();
+  const theme  = useTheme();
+  const router = useRouter();
+
   const [allPokemons, setAllPokemons] = useState<Pokemon[]>([]);
-  const [legendaries, setLegendaries] = useState<Pokemon[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [navIndex, setNavIndex] = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [hydrating, setHydrating]     = useState(true);
+  const [navIndex, setNavIndex]       = useState(0);
+  const hydratedRef = useRef(false);
 
   const [routes] = useState([
-    { key: 'equipe', title: 'Equipe', focusedIcon: 'bag-personal' },
-    { key: 'pokedex', title: 'Pokédex', focusedIcon: 'pokeball' },
-    //{ key: 'batalha', title: 'Batalha', focusedIcon: 'sword-cross' },
-    { key: 'conquistas', title: 'Conquistas', focusedIcon: 'trophy' },
+    { key: 'equipe',  title: 'Equipe',  focusedIcon: 'account-group', unfocusedIcon: 'account-group-outline' },
+    { key: 'pokedex', title: 'Pokédex', focusedIcon: 'pokeball',      unfocusedIcon: 'pokeball'              },
+    { key: 'batalha', title: 'Batalha', focusedIcon: 'sword-cross',   unfocusedIcon: 'sword'                 },
+    { key: 'perfil',  title: 'Perfil',  focusedIcon: 'account-circle',unfocusedIcon: 'account-circle-outline'},
   ]);
 
+  // Guarda de autenticação: sem sessão volta para o login.
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [data, lendarios] = await Promise.all([
-          getPokemon(),
-          getPokemonsByIds(LEGENDARY_IDS),
-        ]);
-        setAllPokemons(data);
-        setLegendaries(lendarios);
-      } catch (error) {
-        // erro de carregamento pode ser tratado aqui
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    if (!authLoading && !isAuthenticated) {
+      router.replace('/');
+    }
+  }, [authLoading, isAuthenticated]);
+
+  // Carrega a lista de Pokémons da PokéAPI.
+  useEffect(() => {
+    getPokemon()
+      .then(setAllPokemons)
+      .finally(() => setLoading(false));
   }, []);
+
+  // Carrega a equipe salva no dispositivo (uma vez) assim que houver sessão.
+  // Se não houver nada salvo, cai na seleção de iniciais (TeamSelect).
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (authLoading || !userId) return;
+
+    hydratedRef.current = true;
+    loadSavedTeam().finally(() => setHydrating(false));
+  }, [authLoading, userId]);
+
+  const handleLogout = async () => {
+    await signOut();
+    router.replace('/');
+  };
 
   const starterPool = useMemo(
     () => allPokemons.filter((p) => STARTER_IDS.includes(Number(p.index))),
@@ -62,25 +79,23 @@ function DashboardInner() {
 
   const renderScene = ({ route }: { route: { key: string } }) => {
     switch (route.key) {
-      case 'equipe':
-        return <TeamView />;
-      case 'pokedex':
-        return <PokedexGrid pokemons={allPokemons} />;
-     // case 'batalha':
-       // return <Battle allPokemons={allPokemons} legendaries={legendaries} />;
-      case 'conquistas':
-        return <Achievements />;
-      default:
-        return null;
+      case 'equipe':  return <TeamView />;
+      case 'pokedex': return <PokedexGrid pokemons={allPokemons} />;
+      case 'batalha': return <Battle allPokemons={allPokemons} />;
+      case 'perfil':  return <Profile total={allPokemons.length} />;
+      default:        return null;
     }
   };
 
-  if (loading) {
+  if (loading || authLoading || hydrating) {
     return (
-      <View style={styles.loader}>
-        <Pokeball size={90} spinning />
-        <Text variant="titleMedium" style={styles.loaderText}>
-          Carregando Pokémons...
+      <View style={[styles.loader, { backgroundColor: theme.colors.primary }]}>
+        <Pokeball size={96} spinning />
+        <Text variant="headlineSmall" style={styles.loaderBrand}>
+          PokeFight
+        </Text>
+        <Text variant="bodyMedium" style={styles.loaderText}>
+          Carregando Pokémons…
         </Text>
       </View>
     );
@@ -92,17 +107,22 @@ function DashboardInner() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.appbar} mode="center-aligned" dark>
-        <Appbar.Content title="Pokédex Battle" titleStyle={styles.appbarTitle} />
+      <Appbar.Header
+        style={[styles.appbar, { backgroundColor: theme.colors.primary }]}
+        mode="center-aligned"
+        dark
+      >
+        <Appbar.Content title="PokeFight" titleStyle={styles.appbarTitle} />
+        <Appbar.Action icon="logout" onPress={handleLogout} color="#fff" />
       </Appbar.Header>
 
       <BottomNavigation
         navigationState={{ index: navIndex, routes }}
         onIndexChange={setNavIndex}
         renderScene={renderScene}
-        barStyle={styles.bar}
-        activeColor="#D32F2F"
-        inactiveColor="#9aa0a6"
+        barStyle={styles.tabBar}
+        activeColor={theme.colors.primary}
+        inactiveColor="#9E9E9E"
         sceneAnimationEnabled
       />
     </View>
@@ -117,20 +137,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3F4F8',
-    gap: 16,
+    gap: 8,
+  },
+  loaderBrand: {
+    color: '#fff',
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginTop: 24,
   },
   loaderText: {
-    color: '#D32F2F',
-    fontWeight: '600',
+    color: 'rgba(255,255,255,0.85)',
   },
   appbar: {
-    backgroundColor: '#D32F2F',
+    elevation: 0,
+    shadowOpacity: 0,
   },
   appbarTitle: {
+    color: '#fff',
     fontWeight: '900',
+    fontSize: 22,
+    letterSpacing: 0.5,
   },
-  bar: {
+  tabBar: {
     backgroundColor: '#fff',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E7E0EC',
   },
 });

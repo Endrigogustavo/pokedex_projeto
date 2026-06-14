@@ -1,13 +1,23 @@
-import React from 'react';
-import { View, Image, StyleSheet, ScrollView } from 'react-native';
-import { Portal, Appbar, Text } from 'react-native-paper';
+import React, { useEffect } from 'react';
+import {
+  View,
+  Image,
+  StyleSheet,
+  ScrollView,
+  Dimensions,
+  Text,
+  BackHandler,
+} from 'react-native';
+import { Portal, Appbar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Pokemon } from '@/@types/pokemon';
 import { getTypeColor, statLabel, capitalize, contrastText } from '@/utils/pokemon';
 import StatBar from '@/component/statBar';
 
-const STAT_MAX = 180;
+const STAT_MAX     = 180;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type Props = {
   pokemon: Pokemon | null;
@@ -15,46 +25,65 @@ type Props = {
 };
 
 export default function PokemonDetail({ pokemon, onClose }: Props) {
+  const insets = useSafeAreaInsets();
+
+  // Fecha com o botão físico "voltar" do Android quando aberto.
+  useEffect(() => {
+    if (!pokemon) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [pokemon, onClose]);
+
   if (!pokemon) return null;
 
   const mainColor = getTypeColor(pokemon.tipos[0]);
-  const onColor = contrastText(mainColor);
-  const isDark = onColor === '#ffffff';
-  const chipBg = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.13)';
-  const total = pokemon.poderes.reduce((sum, p) => sum + Number(p.forca), 0);
+  const onColor   = contrastText(mainColor);
+  const isDark    = onColor === '#ffffff';
+  const chipBg    = isDark ? 'rgba(255,255,255,0.26)' : 'rgba(0,0,0,0.12)';
+  const total     = pokemon.poderes.reduce((s, p) => s + Number(p.forca), 0);
 
   return (
     <Portal>
-      <View style={styles.fullscreen}>
+      <View style={[styles.fullscreen, { paddingBottom: insets.bottom }]}>
+
+        {/* ─── Hero colorido ─── */}
         <View style={[styles.hero, { backgroundColor: mainColor }]}>
           <Appbar.Header style={styles.appbar}>
-            <Appbar.BackAction
-              onPress={onClose}
-              accessibilityLabel="Voltar"
-              color={onColor}
-            />
+            <Appbar.BackAction onPress={onClose} color={onColor} />
             <Appbar.Content title="" />
-            <Text variant="titleMedium" style={[styles.headerIndex, { color: onColor }]}>
+            <Text style={[styles.heroNumber, { color: onColor }]}>
               #{pokemon.index}
             </Text>
-            <View style={{ width: 12 }} />
+            <View style={{ width: 16 }} />
           </Appbar.Header>
 
-          <MaterialCommunityIcons
-            name="pokeball"
-            size={230}
-            color={isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.07)'}
-            style={styles.watermark}
+          {/* Pokéball de fundo — wrapper com pointerEvents none deixa o toque passar */}
+          <View pointerEvents="none" style={styles.heroBallWrap}>
+            <MaterialCommunityIcons
+              name="pokeball"
+              size={SCREEN_WIDTH * 0.95}
+              color={isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)'}
+              style={styles.heroBall}
+            />
+          </View>
+
+          <Image
+            source={{ uri: pokemon.imagem }}
+            style={[styles.heroImage, { imageRendering: 'pixelated' } as any]}
           />
 
-          <Image source={{ uri: pokemon.imagem }} style={styles.image} />
-          <Text variant="headlineMedium" style={[styles.name, { color: onColor }]}>
+          <Text style={[styles.heroName, { color: onColor }]}>
             {capitalize(pokemon.nome)}
           </Text>
-          <View style={styles.chips}>
+
+          {/* Badges de tipo */}
+          <View style={styles.typeRow}>
             {pokemon.tipos.map((tipo) => (
-              <View key={tipo} style={[styles.chip, { backgroundColor: chipBg }]}>
-                <Text variant="labelLarge" style={[styles.chipText, { color: onColor }]}>
+              <View key={tipo} style={[styles.typeBadge, { backgroundColor: chipBg }]}>
+                <Text style={[styles.typeText, { color: onColor }]}>
                   {capitalize(tipo)}
                 </Text>
               </View>
@@ -62,10 +91,20 @@ export default function PokemonDetail({ pokemon, onClose }: Props) {
           </View>
         </View>
 
-        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-          <Text variant="titleLarge" style={styles.sectionTitle}>
-            Status base
-          </Text>
+        {/* ─── Corpo / stats ─── */}
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.statsHeader}>
+            <Text style={styles.sectionTitle}>Status Base</Text>
+            <View style={[styles.totalPill, { backgroundColor: mainColor + '18' }]}>
+              <Text style={[styles.totalText, { color: mainColor }]}>
+                Total  {total}
+              </Text>
+            </View>
+          </View>
 
           {pokemon.poderes.map((poder) => (
             <StatBar
@@ -76,15 +115,6 @@ export default function PokemonDetail({ pokemon, onClose }: Props) {
               color={mainColor}
             />
           ))}
-
-          <View style={styles.totalRow}>
-            <Text variant="titleMedium" style={styles.totalLabel}>
-              Total
-            </Text>
-            <Text variant="titleMedium" style={styles.totalValue}>
-              {total}
-            </Text>
-          </View>
         </ScrollView>
       </View>
     </Portal>
@@ -94,54 +124,63 @@ export default function PokemonDetail({ pokemon, onClose }: Props) {
 const styles = StyleSheet.create({
   fullscreen: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#F3F4F8',
+    backgroundColor: '#F5F5F8',
   },
   hero: {
-    paddingBottom: 28,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
     alignItems: 'center',
+    paddingBottom: 28,
+    borderBottomLeftRadius: 36,
+    borderBottomRightRadius: 36,
     overflow: 'hidden',
   },
   appbar: {
     backgroundColor: 'transparent',
     width: '100%',
+    elevation: 0,
+    shadowOpacity: 0,
   },
-  headerIndex: {
-    color: '#fff',
-    fontWeight: '900',
+  heroNumber: {
+    fontSize: 14,
+    fontWeight: '800',
+    opacity: 0.85,
   },
-  watermark: {
-    position: 'absolute',
-    top: 30,
-    alignSelf: 'center',
+  heroBallWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: '2%',
   },
-  image: {
-    width: 320,
-    height: 320,
+  heroBall: {},
+  heroImage: {
+    width: SCREEN_WIDTH * 0.72,
+    height: SCREEN_WIDTH * 0.72,
+    maxWidth: 300,
+    maxHeight: 300,
     resizeMode: 'contain',
   },
-  name: {
-    color: '#fff',
+  heroName: {
+    fontSize: 28,
     fontWeight: '900',
-    textShadowColor: 'rgba(0,0,0,0.2)',
+    marginTop: 2,
+    letterSpacing: 0.3,
+    textShadowColor: 'rgba(0,0,0,0.12)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+    textShadowRadius: 4,
   },
-  chips: {
+  typeRow: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 12,
   },
-  chip: {
-    backgroundColor: 'rgba(255,255,255,0.28)',
-    borderRadius: 16,
+  typeBadge: {
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 6,
   },
-  chipText: {
-    color: '#fff',
+  typeText: {
+    fontSize: 13,
     fontWeight: '700',
+    letterSpacing: 0.3,
   },
   body: {
     flex: 1,
@@ -150,26 +189,25 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 40,
   },
-  sectionTitle: {
-    fontWeight: '900',
-    color: '#1a1a1a',
-    marginBottom: 18,
-  },
-  totalRow: {
+  statsHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#E3E1E8',
+    justifyContent: 'space-between',
+    marginBottom: 20,
   },
-  totalLabel: {
-    fontWeight: '800',
-    color: '#49454F',
-  },
-  totalValue: {
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: '900',
-    color: '#1a1a1a',
+    color: '#1B1B1F',
+    letterSpacing: -0.2,
+  },
+  totalPill: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  totalText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

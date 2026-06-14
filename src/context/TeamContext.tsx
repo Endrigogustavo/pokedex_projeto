@@ -1,7 +1,20 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  ReactNode,
+} from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pokemon } from '@/@types/pokemon';
-import { maxHpFor } from '@/utils/pokemon';
+import { maxHpFor} from '@/utils/pokemon';
+import { pixelSpriteUrl } from '@/integration/pokemonPixelImage'
 import { TEAM_SIZE } from '@/data/starters';
+import { pokemonAPI } from '@/integration/pokemonAuthApi';
+import { useAuth } from '@/context/AuthContext';
+
+const teamKey = (userId: string) => `@PokeFight:team_${userId}`;
 
 export type TeamMember = {
   id: string;
@@ -33,7 +46,8 @@ let uidCounter = 0;
 function toMember(pokemon: Pokemon): TeamMember {
   const maxHp = maxHpFor(pokemon);
   uidCounter += 1;
-  return { id: `${pokemon.index}-${uidCounter}`, pokemon, maxHp, currentHp: maxHp, wins: 0 };
+  const normalized = { ...pokemon, imagem: pixelSpriteUrl(pokemon.index) };
+  return { id: `${pokemon.index}-${uidCounter}`, pokemon: normalized, maxHp, currentHp: maxHp, wins: 0 };
 }
 
 type TeamContextType = {
@@ -41,7 +55,10 @@ type TeamContextType = {
   bag: TeamMember[];
   hasTeam: boolean;
   createTeam: (pokemons: Pokemon[]) => void;
+  hydrateTeam: (team: Pokemon[], bag?: Pokemon[]) => void;
+  loadSavedTeam: () => Promise<boolean>;
   addPokemon: (pokemon: Pokemon) => 'team' | 'bag';
+  isOwned: (index: string) => boolean;
   moveToTeam: (id: string) => void;
   moveToBag: (id: string) => void;
   summonGods: (gods: Pokemon[]) => void;
@@ -62,21 +79,80 @@ export function TeamProvider({ children }: { children: ReactNode }) {
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [bag, setBag] = useState<TeamMember[]>([]);
   const [stats, setStats] = useState<Stats>(INITIAL_STATS);
+  const { userId } = useAuth();
+  const readyRef = useRef(false);
 
-  const createTeam = (pokemons: Pokemon[]) => {
-    setTeam(pokemons.map(toMember));
-    setBag([]);
+  /** Persiste equipe e bolsa no dispositivo (por usuário). */
+  useEffect(() => {
+    if (!userId || !readyRef.current) return;
+    const data = JSON.stringify({
+      team: team.map((m) => m.pokemon),
+      bag: bag.map((m) => m.pokemon),
+    });
+    AsyncStorage.setItem(teamKey(userId), data).catch(() => {});
+  }, [team, bag, userId]);
+
+  /** Sincroniza captura na nuvem (best-effort, não bloqueia a UI). */
+  const cloudCapture = (index: string) => {
+    if (userId) pokemonAPI.addCapturedPokemon(userId, Number(index)).catch(() => {});
+  };
+  const cloudRelease = (index: string) => {
+    if (userId) pokemonAPI.deleteCapturedPokemon(userId, Number(index)).catch(() => {});
   };
 
-  /** Adiciona um Pokémon: vai pra equipe se houver espaço, senão pra bolsa. */
-  const addPokemon = (pokemon: Pokemon): 'team' | 'bag' => {
-    const member = toMember(pokemon);
-    if (team.length < TEAM_SIZE) {
-      setTeam([...team, member]);
-      return 'team';
+  /** Cria a equipe inicial (iniciais escolhidos) e captura na nuvem. */
+  const createTeam = (pokemons: Pokemon[]) => {
+    readyRef.current = true;
+    setTeam(pokemons.map(toMember));
+    setBag([]);
+    pokemons.forEach((p) => cloudCapture(p.index));
+  };
+
+  /** Lê a equipe salva no dispositivo. Retorna true se havia algo salvo. */
+  const loadSavedTeam = async (): Promise<boolean> => {
+    if (!userId) return false;
+    try {
+      const raw = await AsyncStorage.getItem(teamKey(userId));
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { team?: Pokemon[]; bag?: Pokemon[] };
+      const savedTeam = parsed.team ?? [];
+      if (savedTeam.length === 0) return false;
+      readyRef.current = true;
+      setTeam(savedTeam.map(toMember));
+      setBag((parsed.bag ?? []).map(toMember));
+      return true;
+    } catch {
+      return false;
     }
-    setBag([...bag, member]);
-    return 'bag';
+  };
+
+  /** Carrega equipe e bolsa (sem recapturar). */
+  const hydrateTeam = (teamPokemons: Pokemon[], bagPokemons: Pokemon[] = []) => {
+    readyRef.current = true;
+    setTeam(teamPokemons.map(toMember));
+    setBag(bagPokemons.map(toMember));
+  };
+
+  const isOwned = (index: string): boolean =>
+    [...team, ...bag].some((m) => m.pokemon.index === index);
+
+  /**
+   * Adiciona um Pokémon (recompensa de batalha): entra na equipe se houver
+   * espaço, senão vai pra bolsa. Persiste e sincroniza a captura na nuvem.
+   */
+  const addPokemon = (pokemon: Pokemon): 'team' | 'bag' => {
+    readyRef.current = true;
+    const member = toMember(pokemon);
+    let dest: 'team' | 'bag';
+    if (team.length < TEAM_SIZE) {
+      setTeam((prev) => [...prev, member]);
+      dest = 'team';
+    } else {
+      setBag((prev) => [...prev, member]);
+      dest = 'bag';
+    }
+    cloudCapture(pokemon.index);
+    return dest;
   };
 
   const moveToTeam = (id: string) => {
@@ -127,6 +203,8 @@ export function TeamProvider({ children }: { children: ReactNode }) {
   };
 
   const resetTeam = () => {
+    [...team, ...bag].forEach((m) => cloudRelease(m.pokemon.index));
+    if (userId) AsyncStorage.removeItem(teamKey(userId)).catch(() => {});
     setTeam([]);
     setBag([]);
     setStats(INITIAL_STATS);
@@ -162,7 +240,10 @@ export function TeamProvider({ children }: { children: ReactNode }) {
         bag,
         hasTeam: team.length > 0,
         createTeam,
+        hydrateTeam,
+        loadSavedTeam,
         addPokemon,
+        isOwned,
         moveToTeam,
         moveToBag,
         summonGods,

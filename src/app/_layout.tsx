@@ -6,6 +6,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
 import { paperTheme } from '@/theme/paperTheme';
+import { AuthProvider } from '@/context/AuthContext';
+import { ToastProvider } from '@/hooks/useToast';
 
 export default function RootLayout() {
   return (
@@ -16,13 +18,17 @@ export default function RootLayout() {
           icon: (props: any) => <MaterialCommunityIcons {...props} />,
         }}
       >
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: paperTheme.colors.background },
-          }}
-        />
+        <AuthProvider>
+          <ToastProvider>
+            <StatusBar style="light" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: paperTheme.colors.background },
+              }}
+            />
+          </ToastProvider>
+        </AuthProvider>
       </PaperProvider>
     </SafeAreaProvider>
   );

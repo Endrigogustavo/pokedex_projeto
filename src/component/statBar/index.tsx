@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-type StatBarProps = {
+type Props = {
   label?: string;
   value: number;
   max: number;
@@ -9,13 +9,7 @@ type StatBarProps = {
   valueText?: string;
 };
 
-export default function StatBar({
-  label,
-  value,
-  max,
-  color,
-  valueText,
-}: StatBarProps) {
+export default function StatBar({ label, value, max, color, valueText }: Props) {
   const ratio = max > 0 ? Math.min(1, value / max) : 0;
 
   return (
@@ -25,11 +19,16 @@ export default function StatBar({
           {label}
         </Text>
       ) : null}
+
       <View style={styles.track}>
         <View
-          style={[styles.fill, { width: `${ratio * 100}%`, backgroundColor: color }]}
+          style={[
+            styles.fill,
+            { width: `${ratio * 100}%` as any, backgroundColor: color },
+          ]}
         />
       </View>
+
       <Text style={styles.value} numberOfLines={1}>
         {valueText ?? value}
       </Text>
@@ -41,30 +40,29 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 9,
+    marginBottom: 10,
   },
   label: {
-    width: 72,
+    width: 76,
     flexShrink: 0,
     fontSize: 12,
     fontWeight: '700',
-    color: '#6b7280',
+    color: '#6B7280',
   },
   track: {
     flex: 1,
-    minWidth: 0,
-    height: 10,
-    borderRadius: 6,
-    marginHorizontal: 8,
-    backgroundColor: '#E6E6EE',
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 10,
+    backgroundColor: '#EBEBF0',
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    borderRadius: 6,
+    borderRadius: 4,
   },
   value: {
-    width: 56,
+    width: 50,
     flexShrink: 0,
     textAlign: 'right',
     fontSize: 12,
