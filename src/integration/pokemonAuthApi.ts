@@ -76,7 +76,6 @@ export function cloudToPokemon(c: CloudPokemon): Pokemon {
 }
 
 // ───────────────────────── Auth ─────────────────────────
-
 export const authAPI = {
   register: async (data: RegisterRequest): Promise<LoginResponse> => {
     const response = await api.post('/auth/v1/register', data);

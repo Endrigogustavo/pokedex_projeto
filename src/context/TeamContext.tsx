@@ -8,9 +8,9 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pokemon } from '@/@types/pokemon';
-import { maxHpFor} from '@/utils/pokemon';
-import { pixelSpriteUrl } from '@/integration/pokemonPixelImage'
-import { TEAM_SIZE } from '@/data/starters';
+import { maxHpFor } from '@/constants/pokemon';
+import { pixelSpriteUrl } from '@/integration/pokemonPixelImage';
+import { TEAM_SIZE } from '@/constants/starters';
 import { pokemonAPI } from '@/integration/pokemonAuthApi';
 import { useAuth } from '@/context/AuthContext';
 
@@ -82,7 +82,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
   const { userId } = useAuth();
   const readyRef = useRef(false);
 
-  /** Persiste equipe e bolsa no dispositivo (por usuário). */
   useEffect(() => {
     if (!userId || !readyRef.current) return;
     const data = JSON.stringify({
@@ -92,7 +91,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(teamKey(userId), data).catch(() => {});
   }, [team, bag, userId]);
 
-  /** Sincroniza captura na nuvem (best-effort, não bloqueia a UI). */
   const cloudCapture = (index: string) => {
     if (userId) pokemonAPI.addCapturedPokemon(userId, Number(index)).catch(() => {});
   };
@@ -100,7 +98,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     if (userId) pokemonAPI.deleteCapturedPokemon(userId, Number(index)).catch(() => {});
   };
 
-  /** Cria a equipe inicial (iniciais escolhidos) e captura na nuvem. */
   const createTeam = (pokemons: Pokemon[]) => {
     readyRef.current = true;
     setTeam(pokemons.map(toMember));
@@ -108,7 +105,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     pokemons.forEach((p) => cloudCapture(p.index));
   };
 
-  /** Lê a equipe salva no dispositivo. Retorna true se havia algo salvo. */
   const loadSavedTeam = async (): Promise<boolean> => {
     if (!userId) return false;
     try {
@@ -126,7 +122,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  /** Carrega equipe e bolsa (sem recapturar). */
   const hydrateTeam = (teamPokemons: Pokemon[], bagPokemons: Pokemon[] = []) => {
     readyRef.current = true;
     setTeam(teamPokemons.map(toMember));
@@ -136,10 +131,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
   const isOwned = (index: string): boolean =>
     [...team, ...bag].some((m) => m.pokemon.index === index);
 
-  /**
-   * Adiciona um Pokémon (recompensa de batalha): entra na equipe se houver
-   * espaço, senão vai pra bolsa. Persiste e sincroniza a captura na nuvem.
-   */
   const addPokemon = (pokemon: Pokemon): 'team' | 'bag' => {
     readyRef.current = true;
     const member = toMember(pokemon);
@@ -171,7 +162,6 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     setBag([...bag, member]);
   };
 
-  /** Cheat: os 4 primeiros da equipe vão pra bolsa e os deuses entram no lugar. */
   const summonGods = (gods: Pokemon[]) => {
     const present = new Set([...team, ...bag].map((m) => m.pokemon.index));
     const godMembers = gods.filter((g) => !present.has(g.index)).map(toMember);

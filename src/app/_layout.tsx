@@ -5,9 +5,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
-import { paperTheme } from '@/theme/paperTheme';
+import { paperTheme } from '@/constants/paperTheme';
 import { AuthProvider } from '@/context/AuthContext';
-import { ToastProvider } from '@/hooks/useToast';
+import { ToastProvider } from '@/context/ToastContext';
 
 export default function RootLayout() {
   return (

@@ -1,20 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import { Appbar, BottomNavigation, Text, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 
 import { getPokemon } from '@/integration/pokemonIntegration';
 import { Pokemon } from '@/@types/pokemon';
-import { STARTER_IDS } from '@/data/starters';
+import { STARTER_IDS } from '@/constants/starters';
 import { TeamProvider, useTeam } from '@/context/TeamContext';
 import { useAuth } from '@/context/AuthContext';
 
-import Pokeball from '@/component/pokeball';
-import TeamSelect from '@/component/teamSelect';
-import TeamView from '@/component/teamView';
-import PokedexGrid from '@/component/pokedexGrid';
-import Battle from '@/component/battle';
-import Profile from '@/component/profile';
+import Pokeball from '@/components/pokeball';
+import TeamSelect from '@/components/teamSelect';
+import TeamView from '@/components/teamView';
+import PokedexGrid from '@/components/pokedexGrid';
+import Battle from '@/components/battle';
+import Profile from '@/components/profile';
+import { styles } from '@/styles/dashboard.styles';
 
 export default function Dashboard() {
   return (
@@ -43,22 +44,18 @@ function DashboardInner() {
     { key: 'perfil',  title: 'Perfil',  focusedIcon: 'account-circle',unfocusedIcon: 'account-circle-outline'},
   ]);
 
-  // Guarda de autenticação: sem sessão volta para o login.
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.replace('/');
     }
   }, [authLoading, isAuthenticated]);
 
-  // Carrega a lista de Pokémons da PokéAPI.
   useEffect(() => {
     getPokemon()
       .then(setAllPokemons)
       .finally(() => setLoading(false));
   }, []);
 
-  // Carrega a equipe salva no dispositivo (uma vez) assim que houver sessão.
-  // Se não houver nada salvo, cai na seleção de iniciais (TeamSelect).
   useEffect(() => {
     if (hydratedRef.current) return;
     if (authLoading || !userId) return;
@@ -128,39 +125,3 @@ function DashboardInner() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  loader: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  loaderBrand: {
-    color: '#fff',
-    fontWeight: '900',
-    letterSpacing: 1,
-    marginTop: 24,
-  },
-  loaderText: {
-    color: 'rgba(255,255,255,0.85)',
-  },
-  appbar: {
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  appbarTitle: {
-    color: '#fff',
-    fontWeight: '900',
-    fontSize: 22,
-    letterSpacing: 0.5,
-  },
-  tabBar: {
-    backgroundColor: '#fff',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E7E0EC',
-  },
-});
