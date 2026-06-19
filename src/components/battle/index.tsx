@@ -153,7 +153,7 @@ export default function Battle({ allPokemons }: Props) {
     );
 
     if (won) {
-      setReward(pickRewards(allPokemons, isOwned));
+      setReward(pickRewards(allPokemons, isOwned, 1));
     }
 
     if (!draw) {
@@ -307,8 +307,8 @@ export default function Battle({ allPokemons }: Props) {
 
               {myScore > botScore && reward && !claimedName && (
                 <View style={styles.rewardBox}>
-                  <Text style={styles.rewardTitle}>Escolha sua recompensa</Text>
-                  <Text style={styles.rewardSub}>Um deles entra para o seu time</Text>
+                  <Text style={styles.rewardTitle}>Sua recompensa</Text>
+                  <Text style={styles.rewardSub}>Toque para adicioná-lo ao seu time</Text>
                   <View style={styles.rewardGrid}>
                     {reward.map((p) => {
                       const color = getTypeColor(p.tipos[0]);
