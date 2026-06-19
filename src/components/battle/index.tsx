@@ -24,12 +24,20 @@ import { styles } from './styles';
 
 type Props = { allPokemons: Pokemon[] };
 
-type Phase = 'choose' | 'battle' | 'done';
+type Phase = 'battle' | 'done';
 type Outcome = 'win' | 'lose' | 'draw';
 
+// Pontos necessários para encerrar a batalha automaticamente em vitória.
+const WIN_THRESHOLD = 3;
+
+// Quantidade mínima de pokémons no time para liberar a batalha.
+const MIN_TEAM_SIZE = 5;
+
 type Round = {
+  mine: Pokemon;
   myStat: string;
   myValue: number;
+  bot: Pokemon;
   botStat: string;
   botValue: number;
   result: Outcome;
@@ -50,22 +58,42 @@ const pickRewards = (pool: Pokemon[], owned: (i: string) => boolean, count = 3):
   return shuffled.slice(0, count);
 };
 
+const randomStat = (p: Pokemon, used: string[]): string => {
+  const all = p.poderes.map((s) => s.nome);
+  const available = all.filter((n) => !used.includes(n));
+  const pool = available.length > 0 ? available : all;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+const buildRound = (
+  mine: Pokemon,
+  bot: Pokemon,
+  usedMy: string[],
+  usedBot: string[]
+): Round => {
+  const myStat = randomStat(mine, usedMy);
+  const botStat = randomStat(bot, usedBot);
+  const myValue = getStat(mine, myStat);
+  const botValue = getStat(bot, botStat);
+  const result: Outcome =
+    myValue > botValue ? 'win' : myValue < botValue ? 'lose' : 'draw';
+  return { mine, myStat, myValue, bot, botStat, botValue, result };
+};
+
 export default function Battle({ allPokemons }: Props) {
   const { team, addPokemon, isOwned } = useTeam();
   const { userStats, updateStats } = useAuth();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
-  const [phase, setPhase]           = useState<Phase>('choose');
-  const [myPokemon, setMyPokemon]   = useState<Pokemon | null>(null);
+  const [phase, setPhase]           = useState<Phase>('battle');
   const [botPokemon, setBotPokemon] = useState<Pokemon | null>(null);
-  const [usedMine, setUsedMine]     = useState<string[]>([]);
-  const [usedBot, setUsedBot]       = useState<string[]>([]);
-  const [myScore, setMyScore]       = useState(0);
-  const [botScore, setBotScore]     = useState(0);
   const [rounds, setRounds]         = useState<Round[]>([]);
   const [reward, setReward]         = useState<Pokemon[] | null>(null);
   const [claimedName, setClaimedName] = useState<string | null>(null);
+
+  const myScore  = rounds.filter((r) => r.result === 'win').length;
+  const botScore = rounds.filter((r) => r.result === 'lose').length;
 
   useEffect(() => {
     if (!botPokemon && allPokemons.length > 0) {
@@ -73,19 +101,34 @@ export default function Battle({ allPokemons }: Props) {
     }
   }, [allPokemons, botPokemon]);
 
-  const stats = myPokemon ? myPokemon.poderes.map((p) => p.nome) : [];
+
+  useEffect(() => {
+    if (phase !== 'battle' || !botPokemon) return;
+
+    const won  = rounds.filter((r) => r.result === 'win').length;
+    const lost = rounds.filter((r) => r.result === 'lose').length;
+
+    if (won > WIN_THRESHOLD || rounds.length >= team.length) {
+      finalize(won, lost);
+      return;
+    }
+
+    const t = setTimeout(() => {
+      const mine = team[rounds.length].pokemon;
+      const usedMy = rounds.map((r) => r.myStat);
+      const usedBot = rounds.map((r) => r.botStat);
+      const round = buildRound(mine, botPokemon, usedMy, usedBot);
+      setRounds((prev) => [...prev, round]);
+    }, 1100);
+    return () => clearTimeout(t);
+  }, [phase, rounds, botPokemon, team]);
 
   const newBattle = () => {
-    setMyPokemon(null);
     setBotPokemon(pickRandom(allPokemons));
-    setUsedMine([]);
-    setUsedBot([]);
-    setMyScore(0);
-    setBotScore(0);
     setRounds([]);
     setReward(null);
     setClaimedName(null);
-    setPhase('choose');
+    setPhase('battle');
   };
 
   const claimReward = (p: Pokemon) => {
@@ -97,11 +140,6 @@ export default function Battle({ allPokemons }: Props) {
         : `${capitalize(p.nome)} foi para a bolsa (time cheio)!`,
       'success'
     );
-  };
-
-  const chooseMine = (p: Pokemon) => {
-    setMyPokemon(p);
-    setPhase('battle');
   };
 
   const finalize = (my: number, bot: number) => {
@@ -128,49 +166,22 @@ export default function Battle({ allPokemons }: Props) {
     }
   };
 
-  const playStat = (statName: string) => {
-    if (!myPokemon || !botPokemon) return;
-    if (usedMine.includes(statName)) return;
-
-    const myValue = getStat(myPokemon, statName);
-
-    const botRemaining = stats.filter((s) => !usedBot.includes(s));
-    const botStat = botRemaining.reduce((best, s) =>
-      getStat(botPokemon, s) > getStat(botPokemon, best) ? s : best
-    );
-    const botValue = getStat(botPokemon, botStat);
-
-    const result: Outcome =
-      myValue > botValue ? 'win' : myValue < botValue ? 'lose' : 'draw';
-
-    const round: Round = { myStat: statName, myValue, botStat, botValue, result };
-    const newRounds   = [...rounds, round];
-    const newUsedMine = [...usedMine, statName];
-    const newUsedBot  = [...usedBot, botStat];
-    const newMyScore  = myScore + (result === 'win' ? 1 : 0);
-    const newBotScore = botScore + (result === 'lose' ? 1 : 0);
-
-    setRounds(newRounds);
-    setUsedMine(newUsedMine);
-    setUsedBot(newUsedBot);
-    setMyScore(newMyScore);
-    setBotScore(newBotScore);
-
-    if (newUsedMine.length >= stats.length) {
-      finalize(newMyScore, newBotScore);
-    }
-  };
-
-  if (team.length === 0) {
+  if (team.length < MIN_TEAM_SIZE) {
     return (
       <View style={styles.center}>
         <MaterialCommunityIcons name="sword-cross" size={56} color="#CACAD5" />
-        <Text style={styles.emptyTitle}>Monte um time para batalhar</Text>
+        <Text style={styles.emptyTitle}>
+          Monte um time com pelo menos {MIN_TEAM_SIZE} pokémons para batalhar
+        </Text>
+        <Text style={styles.emptySub}>
+          Você tem {team.length} de {MIN_TEAM_SIZE}
+        </Text>
       </View>
     );
   }
 
   const lastRound = rounds[rounds.length - 1] ?? null;
+  const myPokemon = lastRound?.mine ?? team[0]?.pokemon ?? null;
   const botColor  = botPokemon ? getTypeColor(botPokemon.tipos[0]) : '#888';
   const myColor   = myPokemon ? getTypeColor(myPokemon.tipos[0]) : '#888';
 
@@ -182,139 +193,89 @@ export default function Battle({ allPokemons }: Props) {
     >
       <View style={styles.headerRow}>
         <Text style={styles.title}>Batalha de Atributos</Text>
-        {phase !== 'choose' && (
-          <View style={styles.scorePill}>
-            <Text style={styles.scoreText}>
-              {myScore} <Text style={styles.scoreDim}>x</Text> {botScore}
-            </Text>
-          </View>
-        )}
       </View>
 
-      {botPokemon && (
-        <View style={[styles.fighter, { borderColor: botColor }]}>
-          <View style={[styles.fighterBadge, { backgroundColor: botColor }]}>
-            <Text style={styles.fighterBadgeText}>ADVERSÁRIO</Text>
-          </View>
-          <Image source={{ uri: botPokemon.imagem }} style={[styles.fighterImg, PIX]} />
-          <Text style={styles.fighterName}>{capitalize(botPokemon.nome)}</Text>
-          <Text style={styles.fighterTypes}>
-            {botPokemon.tipos.map(capitalize).join(' · ')}
-          </Text>
-        </View>
-      )}
-
-      {phase === 'choose' && (
+      {myPokemon && botPokemon && (
         <>
-          <Text style={styles.sectionTitle}>Escolha seu Pokémon</Text>
-          <View style={styles.teamGrid}>
-            {team.map((m) => {
-              const color = getTypeColor(m.pokemon.tipos[0]);
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => chooseMine(m.pokemon)}
-                  style={({ pressed }) => [
-                    styles.teamPick,
-                    { borderColor: color },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Image source={{ uri: m.pokemon.imagem }} style={[styles.pickImg, PIX]} />
-                  <Text style={styles.pickName} numberOfLines={1}>
-                    {capitalize(m.pokemon.nome)}
+          <View style={styles.arena}>
+            <View style={styles.arenaRow}>
+              <View style={styles.arenaSide}>
+                <View style={[styles.arenaBadge, { backgroundColor: myColor }]}>
+                  <Text style={styles.arenaBadgeText}>VOCÊ</Text>
+                </View>
+                <Image source={{ uri: myPokemon.imagem }} style={[styles.arenaImg, PIX]} />
+                <Text style={styles.arenaName} numberOfLines={1}>{capitalize(myPokemon.nome)}</Text>
+              </View>
+
+              <View style={styles.arenaCenter}>
+                <View style={styles.scorePill}>
+                  <Text style={styles.scoreText}>
+                    {myScore} <Text style={styles.scoreDim}>x</Text> {botScore}
                   </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      )}
+                </View>
+                <MaterialCommunityIcons name="sword-cross" size={22} color="#9CA3AF" />
+              </View>
 
-      {phase !== 'choose' && myPokemon && (
-        <>
-          <View style={[styles.fighter, styles.myFighter, { borderColor: myColor }]}>
-            <View style={[styles.fighterBadge, { backgroundColor: myColor }]}>
-              <Text style={styles.fighterBadgeText}>VOCÊ</Text>
+              <View style={styles.arenaSide}>
+                <View style={[styles.arenaBadge, { backgroundColor: botColor }]}>
+                  <Text style={styles.arenaBadgeText}>INIMIGO</Text>
+                </View>
+                <Image source={{ uri: botPokemon.imagem }} style={[styles.arenaImg, PIX]} />
+                <Text style={styles.arenaName} numberOfLines={1}>{capitalize(botPokemon.nome)}</Text>
+              </View>
             </View>
-            <Image source={{ uri: myPokemon.imagem }} style={[styles.fighterImg, PIX]} />
-            <Text style={styles.fighterName}>{capitalize(myPokemon.nome)}</Text>
-          </View>
 
-          {lastRound && (
-            <View
-              style={[
-                styles.roundBanner,
-                {
-                  backgroundColor:
-                    lastRound.result === 'win'
-                      ? '#E6F4EA'
-                      : lastRound.result === 'lose'
-                      ? '#FDECEA'
-                      : '#EEF0F4',
-                },
-              ]}
-            >
-              <Text style={styles.roundText}>
-                Você: {statLabel(lastRound.myStat)}{' '}
-                <Text style={styles.roundValue}>{lastRound.myValue}</Text>
-                {'   vs   '}
-                Bot: {statLabel(lastRound.botStat)}{' '}
-                <Text style={styles.roundValue}>{lastRound.botValue}</Text>
-              </Text>
-              <Text
+            {lastRound ? (
+              <View
                 style={[
-                  styles.roundResult,
+                  styles.duel,
                   {
-                    color:
+                    backgroundColor:
                       lastRound.result === 'win'
-                        ? '#2E9E5B'
+                        ? '#E6F4EA'
                         : lastRound.result === 'lose'
-                        ? '#C62828'
-                        : '#6B7280',
+                        ? '#FDECEA'
+                        : '#EEF0F4',
                   },
                 ]}
               >
-                {lastRound.result === 'win'
-                  ? '✓ Ponto seu!'
-                  : lastRound.result === 'lose'
-                  ? '✗ Ponto do bot'
-                  : '= Empate'}
-              </Text>
-            </View>
-          )}
-
-          {phase === 'battle' && (
-            <>
-              <Text style={styles.sectionTitle}>
-                Escolha um atributo ({stats.length - usedMine.length} restantes)
-              </Text>
-              <View style={styles.attrGrid}>
-                {myPokemon.poderes.map((poder) => {
-                  const used = usedMine.includes(poder.nome);
-                  return (
-                    <Pressable
-                      key={poder.nome}
-                      disabled={used}
-                      onPress={() => playStat(poder.nome)}
-                      style={({ pressed }) => [
-                        styles.attrBtn,
-                        used && styles.attrUsed,
-                        pressed && !used && styles.pressed,
-                      ]}
-                    >
-                      <Text style={[styles.attrLabel, used && styles.attrUsedText]}>
-                        {statLabel(poder.nome)}
-                      </Text>
-                      <Text style={[styles.attrValue, used && styles.attrUsedText]}>
-                        {used ? '—' : poder.forca}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                <View style={styles.duelSide}>
+                  <Text style={styles.duelStat}>{statLabel(lastRound.myStat)}</Text>
+                  <Text style={[styles.duelValue, { color: myColor }]}>{lastRound.myValue}</Text>
+                </View>
+                <Text
+                  style={[
+                    styles.duelResult,
+                    {
+                      color:
+                        lastRound.result === 'win'
+                          ? '#2E9E5B'
+                          : lastRound.result === 'lose'
+                          ? '#C62828'
+                          : '#6B7280',
+                    },
+                  ]}
+                >
+                  {lastRound.result === 'win' ? '✓' : lastRound.result === 'lose' ? '✗' : '='}
+                </Text>
+                <View style={styles.duelSide}>
+                  <Text style={styles.duelStat}>{statLabel(lastRound.botStat)}</Text>
+                  <Text style={[styles.duelValue, { color: botColor }]}>{lastRound.botValue}</Text>
+                </View>
               </View>
-            </>
-          )}
+            ) : (
+              <View style={[styles.duel, { backgroundColor: '#EEF0F4' }]}>
+                <MaterialCommunityIcons name="dice-multiple" size={22} color="#6B7280" />
+                <Text style={styles.duelPending}>Sorteando atributos...</Text>
+              </View>
+            )}
+
+            {phase === 'battle' && (
+              <Text style={styles.arenaProgress}>
+                Rodada {Math.min(rounds.length + 1, team.length)} de {team.length}
+              </Text>
+            )}
+          </View>
 
           {phase === 'done' && (
             <>

@@ -1,0 +1,44 @@
+@startuml
+
+left to right direction
+
+actor Treinador 
+
+rectangle "Poké-Trainer" as PokeTrainer {
+  usecase "Manter Pokémons Capturados" as UC1
+  usecase "Remover Pokémon dos Capturados" as UC2
+  usecase "Adicionar Pokémon ao Time" as UC3
+  usecase "Remover Pokémon do Time" as UC4
+  usecase "Manter Time" as UC5 
+  usecase "Participar de Batalhas" as UC6
+  usecase "Ver Status do Time" as UC7
+  usecase "Fazer Login" as UC8
+  usecase "Fazer Registro" as UC9
+  usecase "Manter Perfil" as UC10
+  usecase "Capturar pokemom" as UC11
+}
+
+UC1 .> UC2 : <<extend>>
+UC3 .up.> UC1 : <<include>>
+UC5 .down.> UC7 : <<extend>>
+UC5 .down.> UC4 : <<extend>>
+UC5 .down.> UC3 : <<extend>>
+UC10 .down.> UC8 : <<include>>
+UC11 .> UC1 : <<extend>>
+
+UC9 .down.> UC8 : <<extend>>
+
+UC1 .down.> UC8 : <<include>>
+UC2 .down.> UC8 : <<include>>
+UC3 .down.> UC8 : <<include>>
+UC4 .down.> UC8 : <<include>>
+UC5 .down.> UC8 : <<include>>
+UC6 .down.> UC8 : <<include>>
+UC7 .down.> UC8 : <<include>>
+
+Treinador --> UC5
+Treinador --> UC9
+Treinador --> UC6
+Treinador --> UC10  
+
+@enduml
