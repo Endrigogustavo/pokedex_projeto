@@ -30,7 +30,8 @@ src/
 ├── constants/     # dados estáticos, tema e helpers (starters, conquistas, etc.)
 ├── context/       # estado global (Auth, Team, Toast)
 ├── integration/   # clientes da API (axios) e conversões de dados
-└── styles/        # folhas de estilo das telas (ver nota abaixo)
+├── styles/        # folhas de estilo das telas (ver nota abaixo)
+└── utils/         # helpers puros (ex.: leitura/validação do JWT)
 ```
 
 ## Por que a estrutura diverge do padrão de referência
@@ -39,8 +40,8 @@ O padrão de referência
 ([FATEC-Multiplataforma2026/pokemon](https://github.com/FATEC-Multiplataforma2026/pokemon/tree/main/src))
 define as pastas: `@types`, `app`, `components`, `constants`, `context` e `integration`.
 
-Este projeto segue esse padrão, com **uma única adição intencional**: a pasta
-`styles/`.
+Este projeto segue esse padrão, com **duas adições intencionais**: as pastas
+`styles/` e `utils/`.
 
 ### `styles/` — folhas de estilo das telas
 
@@ -58,5 +59,23 @@ Motivos:
   co-localizado (ex.: `context/ToastContext.styles.ts`); a pasta `styles/` é usada
   só para as telas grandes, onde a separação compensa.
 
-> Decisão de organização, não de funcionalidade: nada além de `styles/` foi
+### `utils/` — helpers puros
+
+`utils/jwt.ts` concentra a leitura do JWT (`decodeToken`) e a checagem de validade
+(`isTokenExpired`). Não é cliente de API (não cabe em `integration/`) nem dado estático
+(não cabe em `constants/`), por isso a pasta própria — seguindo a organização usada na
+aula do Prof. Kleber.
+
+> Decisão de organização, não de funcionalidade: nada além de `styles/` e `utils/` foi
 > acrescentado ao padrão de referência.
+
+## Variáveis de ambiente
+
+A camada de autenticação lê `EXPO_PUBLIC_API_URL`. Crie um `.env` na raiz:
+
+```
+EXPO_PUBLIC_API_URL=<host da API, sem barra no final>
+```
+
+A partir dele são montadas as bases `${EXPO_PUBLIC_API_URL}/fatec/login/v1` (login e
+registro, com JWT) e `${EXPO_PUBLIC_API_URL}/api-pokemon/auth/v1` (stats do treinador).

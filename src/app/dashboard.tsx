@@ -64,8 +64,8 @@ function DashboardInner() {
     loadSavedTeam().finally(() => setHydrating(false));
   }, [authLoading, userId]);
 
-  const handleLogout = async () => {
-    await signOut();
+  const handleLogout = () => {
+    signOut();
     router.replace('/');
   };
 

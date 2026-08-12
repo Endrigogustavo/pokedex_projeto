@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 
 import { useTeam } from '@/context/TeamContext';
 import { useAuth } from '@/context/AuthContext';
+import { getStats, StatsResponse } from '@/integration/authIntegration';
 import { evaluateAchievements } from '@/constants/achievements';
 import { Stats } from '@/context/TeamContext';
 import { capitalize, getTypeColor } from '@/constants/pokemon';
@@ -24,14 +25,21 @@ type Props = {
 
 export default function Profile({ total }: Props) {
   const { team, bag } = useTeam();
-  const { user, userStats, signOut, refreshStats } = useAuth();
+  const { user, userId, signOut } = useAuth();
   const theme  = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const [userStats, setUserStats] = useState<StatsResponse | null>(null);
+
   useEffect(() => {
-    refreshStats();
-  }, []);
+    if (!userId) return;
+    getStats(userId)
+      .then(setUserStats)
+      .catch(() => {
+        // estatísticas indisponíveis não impedem o uso do app
+      });
+  }, [userId]);
 
   const owned       = team.length + bag.length;
   const dexProgress = total > 0 ? owned / total : 0;
@@ -57,8 +65,8 @@ export default function Profile({ total }: Props) {
     { label: 'Capturas', value: owned,    icon: 'pokeball',      color: '#CC0000' },
   ];
 
-  const handleLogout = async () => {
-    await signOut();
+  const handleLogout = () => {
+    signOut();
     router.replace('/');
   };
 

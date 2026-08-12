@@ -15,35 +15,6 @@ const api = axios.create({
 
 // ───────────────────────── Tipos ─────────────────────────
 
-export type RegisterRequest = {
-  username: string;
-  password: string;
-};
-
-export type LoginRequest = {
-  username: string;
-  password: string;
-};
-
-/** A API real devolve apenas o userId no login/registro. */
-export type LoginResponse = {
-  userId: string;
-};
-
-export type UserStats = {
-  userId: string;
-  username: string;
-  level: number;
-  vitorias: number;
-  derrotas: number;
-};
-
-export type UpdateStatsRequest = {
-  level: string;
-  vitorias: string;
-  derrotas: string;
-};
-
 /** Formato de Pokémon retornado pela API da AWS. */
 export type CloudPokemon = {
   index: string;
@@ -75,31 +46,7 @@ export function cloudToPokemon(c: CloudPokemon): Pokemon {
   };
 }
 
-// ───────────────────────── Auth ─────────────────────────
-export const authAPI = {
-  register: async (data: RegisterRequest): Promise<LoginResponse> => {
-    const response = await api.post('/auth/v1/register', data);
-    return response.data;
-  },
-
-  login: async (data: LoginRequest): Promise<LoginResponse> => {
-    const response = await api.post('/auth/v1/login', data);
-    return response.data;
-  },
-
-  getStats: async (userId: string): Promise<UserStats> => {
-    const response = await api.get(`/auth/v1/stats/${userId}`);
-    return response.data;
-  },
-
-  updateStats: async (
-    userId: string,
-    data: UpdateStatsRequest
-  ): Promise<UserStats> => {
-    const response = await api.put(`/auth/v1/stats/${userId}`, data);
-    return response.data;
-  },
-};
+// Autenticação e stats moram em `authIntegration.ts` (JWT via httpClient).
 
 // ──────────────────────── Pokémon ────────────────────────
 

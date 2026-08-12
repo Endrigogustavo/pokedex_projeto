@@ -31,7 +31,7 @@ export default function Index() {
 
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signIn, register, isAuthenticated, isLoading } = useAuth();
+  const { signIn, signUp, isAuthenticated, isLoading } = useAuth();
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -48,16 +48,20 @@ export default function Index() {
     setSubmitting(true);
     try {
       if (isRegister) {
-        await register(usuario.trim(), senha.trim());
-        showToast('Conta criada com sucesso!', 'success');
-        await signIn(usuario.trim(), senha.trim());
-        router.replace('/dashboard');
+        // signUp já faz o login logo após o registro.
+        const { ok, error } = await signUp(usuario.trim(), senha.trim());
+        if (ok) {
+          showToast('Conta criada com sucesso!', 'success');
+          router.replace('/dashboard');
+        } else {
+          showToast(error || 'Não foi possível criar a conta', 'error');
+        }
       } else {
-        const ok = await signIn(usuario.trim(), senha.trim());
+        const { ok } = await signIn(usuario.trim(), senha.trim());
         if (ok) {
           router.replace('/dashboard');
         } else {
-          showToast('Não foi possível entrar', 'error');
+          showToast('Usuário ou senha incorretos', 'error');
         }
       }
     } catch (e: any) {

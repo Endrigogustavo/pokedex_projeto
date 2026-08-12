@@ -15,6 +15,11 @@ import { useTeam } from '@/context/TeamContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import {
+  getStats,
+  updateStats,
+  StatsResponse,
+} from '@/integration/authIntegration';
+import {
   getTypeColor,
   capitalize,
   statLabel,
@@ -82,7 +87,7 @@ const buildRound = (
 
 export default function Battle({ allPokemons }: Props) {
   const { team, addPokemon, isOwned } = useTeam();
-  const { userStats, updateStats } = useAuth();
+  const { userId } = useAuth();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
@@ -91,9 +96,19 @@ export default function Battle({ allPokemons }: Props) {
   const [rounds, setRounds]         = useState<Round[]>([]);
   const [reward, setReward]         = useState<Pokemon[] | null>(null);
   const [claimedName, setClaimedName] = useState<string | null>(null);
+  const [userStats, setUserStats]     = useState<StatsResponse | null>(null);
 
   const myScore  = rounds.filter((r) => r.result === 'win').length;
   const botScore = rounds.filter((r) => r.result === 'lose').length;
+
+  useEffect(() => {
+    if (!userId) return;
+    getStats(userId)
+      .then(setUserStats)
+      .catch(() => {
+        // sem stats na nuvem a batalha continua, só não pontua
+      });
+  }, [userId]);
 
   useEffect(() => {
     if (!botPokemon && allPokemons.length > 0) {
@@ -156,13 +171,22 @@ export default function Battle({ allPokemons }: Props) {
       setReward(pickRewards(allPokemons, isOwned, 1));
     }
 
-    if (!draw) {
+    if (!draw && userId) {
       const v = userStats?.vitorias ?? 0;
       const d = userStats?.derrotas ?? 0;
       const newV = v + (won ? 1 : 0);
       const newD = d + (won ? 0 : 1);
       const newLevel = Math.floor(newV / 3) + 1;
-      updateStats(newLevel, newV, newD);
+
+      updateStats(userId, {
+        level: String(newLevel),
+        vitorias: String(newV),
+        derrotas: String(newD),
+      })
+        .then(setUserStats)
+        .catch(() => {
+          // placar local segue válido mesmo se a nuvem falhar
+        });
     }
   };
 
